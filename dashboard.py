@@ -1,7 +1,7 @@
 # =============================================================================
-# Dashboard – Ventes mondiales de jeux vidéo (VGChartz 2024)
+# Dashboard – Ventes mondiales de jeux vidéo (dataset de l'exercice : vgsales.csv)
 # Lancer avec :  python -m streamlit run dashboard.py
-# À placer dans le même dossier que vgchartz_clean.csv (créé par le notebook)
+# À placer dans le même dossier que vgsales_clean.csv (données de l'exercice nettoyées dans le notebook)
 # et que le dossier .streamlit/ (qui contient le thème sombre).
 # =============================================================================
 
@@ -21,8 +21,8 @@ ACCENT = "#8B9CFF"          # lavande : la couleur principale
 ATTENUE = "#2E3448"         # barres "secondaires"
 CHAUD = "#F2B48C"           # pêche : seulement pour signaler "au-dessus de la moyenne"
 
-REGIONS = {"na_sales": "Amérique du Nord", "pal_sales": "Europe (PAL)", "jp_sales": "Japon", "other_sales": "Autres"}
-COULEURS_REGIONS = {"Amérique du Nord": ACCENT, "Europe (PAL)": "#6FCFB7", "Japon": CHAUD, "Autres": DISCRET}
+REGIONS = {"na_sales": "Amérique du Nord", "eu_sales": "Europe", "jp_sales": "Japon", "other_sales": "Autres"}
+COULEURS_REGIONS = {"Amérique du Nord": ACCENT, "Europe": "#6FCFB7", "Japon": CHAUD, "Autres": DISCRET}
 
 # Style de la page (CSS) : police, cartes, onglets, éléments Streamlit masqués
 st.markdown(f"""
@@ -105,9 +105,19 @@ def nombre(x, decimales=0):
 # -----------------------------------------------------------------------------
 @st.cache_data                     # garde le fichier en mémoire : pas rechargé à chaque clic
 def charger_donnees():
-    df = pd.read_csv("vgchartz_clean.csv")
-    df["year"] = df["year"].astype("Int64")   # année en entier (accepte les valeurs vides)
-    return df
+    """Charge les données de l'exercice, nettoyées dans le notebook du groupe (vgsales_clean.csv)."""
+    df = pd.read_csv("vgsales_clean.csv")
+    # Le nettoyage est déjà fait dans le notebook ; on le revérifie ici par sécurité :
+    df["Year"] = df.groupby("Platform")["Year"].transform(lambda x: x.fillna(x.median()))   # année -> médiane plateforme
+    df["Year"] = df["Year"].fillna(df["Year"].median()).astype(int)
+    df["Publisher"] = df["Publisher"].fillna("Unknown")                                        # éditeur -> "Unknown"
+    df = (df.sort_values("Global_Sales", ascending=False)                                      # vrais doublons
+            .drop_duplicates(subset=["Name", "Platform", "Year"], keep="first"))
+
+    # Noms de colonnes utilisés dans le reste du dashboard
+    return df.rename(columns={"Name": "title", "Platform": "console", "Year": "year", "Genre": "genre",
+                              "Publisher": "publisher", "Global_Sales": "total_sales", "NA_Sales": "na_sales",
+                              "EU_Sales": "eu_sales", "JP_Sales": "jp_sales", "Other_Sales": "other_sales"})
 
 df = charger_donnees()
 
@@ -119,7 +129,8 @@ st.sidebar.markdown(f"<p style='color:{TEXTE};font-size:18px;font-weight:700;mar
                     f"<p style='color:{DOUX};font-size:13px;margin:2px 0 18px'>Ils s'appliquent à tous les onglets.</p>",
                     unsafe_allow_html=True)
 
-annee_min, annee_max = st.sidebar.slider("Période", 1977, 2018, (1977, 2018))   # estimations arrêtées après 2018
+premiere, derniere = int(df["year"].min()), int(df["year"].max())
+annee_min, annee_max = st.sidebar.slider("Période", premiere, derniere, (premiere, derniere))
 choix_region = st.sidebar.selectbox("Région", ["Monde"] + list(REGIONS.values()))
 colonne_ventes = "total_sales" if choix_region == "Monde" else \
     [col for col, nom in REGIONS.items() if nom == choix_region][0]
@@ -128,15 +139,15 @@ top_plateformes = df.groupby("console")["total_sales"].sum().sort_values(ascendi
 plateformes = st.sidebar.multiselect("Plateformes", list(top_plateformes), placeholder="Toutes")
 
 # Application des filtres
-filtre = df[(df["year"] >= annee_min) & (df["year"] <= annee_max)]   # les jeux sans année sont exclus ici
+filtre = df[(df["year"] >= annee_min) & (df["year"] <= annee_max)]
 if genres:
     filtre = filtre[filtre["genre"].isin(genres)]
 if plateformes:
     filtre = filtre[filtre["console"].isin(plateformes)]
 
 st.sidebar.markdown(f"<p style='color:{DISCRET};font-size:12.5px;margin-top:28px;line-height:1.5'>"
-                    "Source : VGChartz 2024, nettoyé dans le notebook du projet. Ventes en millions d'unités. "
-                    "Les jeux édités par Nintendo n'ont pas de ventes dans ces données.</p>", unsafe_allow_html=True)
+                    "Source : vgsales.csv (données de l'exercice), nettoyé dans le notebook du groupe. "
+                    "Ventes physiques en millions d'unités. Données jusqu'en 2016.</p>", unsafe_allow_html=True)
 
 if filtre.empty or filtre[colonne_ventes].sum() == 0:      # sécurité : aucun jeu ou aucune vente
     st.warning("Aucune vente ne correspond à ces filtres. Élargis la période ou retire un filtre.")
@@ -170,7 +181,7 @@ with onglet1:
     record = par_an.loc[par_an["Ventes"].idxmax()]
     st.markdown('<p class="section">Évolution des ventes</p>', unsafe_allow_html=True)
     lecture(f"Année record : <b>{int(record['year'])}</b> ({nombre(record['Ventes'])} M). "
-            "La baisse après 2010 vient en partie du téléchargement, mal suivi par VGChartz.")
+            "Après 2010, la baisse vient en partie du passage au téléchargement, absent des données.")
 
     fig = px.area(par_an, x="year", y="Ventes")
     fig.update_traces(line=dict(color=ACCENT, width=2.5), fillcolor="rgba(139,156,255,0.12)",
@@ -182,13 +193,12 @@ with onglet1:
     st.plotly_chart(styliser(fig, 340, grille_x=False, grille_y=True), width="stretch")
 
     st.markdown('<p class="section">Les 10 jeux les plus vendus</p>', unsafe_allow_html=True)
-    top10 = filtre.nlargest(10, colonne_ventes)[["title", "console", "year", "publisher", "critic_score", colonne_ventes]]
-    top10["critic_score"] = top10["critic_score"].apply(lambda n: f"{n:.1f}" if pd.notna(n) else "–")
+    top10 = filtre.nlargest(10, colonne_ventes)[["title", "console", "year", "genre", "publisher", colonne_ventes]]
     st.dataframe(
         top10, hide_index=True, width="stretch",
         column_config={
             "title": "Jeu", "console": "Console", "year": st.column_config.NumberColumn("Année", format="%d"),
-            "publisher": "Éditeur", "critic_score": "Note /10",
+            "genre": "Genre", "publisher": "Éditeur",
             colonne_ventes: st.column_config.ProgressColumn("Ventes (M)", format="%.1f", min_value=0,
                                                             max_value=float(top10[colonne_ventes].max())),
         })
@@ -236,10 +246,10 @@ with onglet3:
     st.plotly_chart(fig, width="stretch")
 
     # Indice d'affinité : 100 = moyenne mondiale, au-dessus = la région aime plus ce genre
-    gr = filtre.groupby("genre")[["na_sales", "pal_sales", "jp_sales"]].sum()
+    gr = filtre.groupby("genre")[["na_sales", "eu_sales", "jp_sales"]].sum()
     gr = gr[gr.sum(axis=1) >= 0.01 * gr.values.sum()]          # genres qui pèsent au moins 1 % des ventes
     affinite = (gr / gr.sum()).div(gr.sum(axis=1) / gr.values.sum(), axis=0) * 100
-    affinite.columns = ["Amérique du Nord", "Europe (PAL)", "Japon"]
+    affinite.columns = ["Amérique du Nord", "Europe", "Japon"]
 
     st.markdown('<p class="section">Les goûts de chaque région</p>', unsafe_allow_html=True)
     lecture("100 = moyenne mondiale. Plus la case est cuivrée, plus la région aime ce genre <b>au-dessus</b> de la moyenne.")
@@ -283,7 +293,7 @@ with onglet3:
 
         genre_top = donnees_hm.groupby("genre")[col_region].sum().idxmax()
         part_top = donnees_hm.groupby("genre")[col_region].sum().max() / donnees_hm[col_region].sum() * 100
-        dans = {"Amérique du Nord": "en Amérique du Nord", "Europe (PAL)": "en Europe",
+        dans = {"Amérique du Nord": "en Amérique du Nord", "Europe": "en Europe",
                 "Japon": "au Japon", "Autres": "dans les autres régions"}[region_hm]
         lecture(f"Genre n°1 {dans} sur la sélection : <b>{genre_top}</b> ({nombre(part_top)} % des ventes).")
 
