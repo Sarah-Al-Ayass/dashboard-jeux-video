@@ -145,9 +145,8 @@ if genres:
 if plateformes:
     filtre = filtre[filtre["console"].isin(plateformes)]
 
-st.sidebar.markdown(f"<p style='color:{DISCRET};font-size:12.5px;margin-top:28px;line-height:1.5'>"
-                    "Source : vgsales.csv (données de l'exercice), nettoyé dans le notebook du groupe. "
-                    "Ventes physiques en millions d'unités. Données jusqu'en 2016.</p>", unsafe_allow_html=True)
+st.sidebar.markdown(f"<p style='color:{DISCRET};font-size:11px;margin-top:28px'>Source : vgsales.csv</p>",
+                    unsafe_allow_html=True)
 
 if filtre.empty or filtre[colonne_ventes].sum() == 0:      # sécurité : aucun jeu ou aucune vente
     st.warning("Aucune vente ne correspond à ces filtres. Élargis la période ou retire un filtre.")
